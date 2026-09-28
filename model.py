@@ -9,6 +9,20 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Subset, TensorDataset
 from torchvision import datasets, transforms
 
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
+
+if torch.cuda.is_available():
+    DEVICE = torch.device("cuda")
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    DEVICE = torch.device("mps")
+else:
+    DEVICE = torch.device("cpu")
+
 class ConvBNReLU(nn.Module):
     def __init__(
         self,
