@@ -91,7 +91,6 @@ class SkipConnectionBlock(nn.Module):
         if stride == 1 and (in_channels == out_channels):
             self.shortcut = nn.Identity()
         else:
-            #self.shortcut = ConvBNReLU(in_channels, out_channels, kernel_size = 1)
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size = 1, stride=stride, bias=False),
                 nn.BatchNorm2d(out_channels),
@@ -118,7 +117,7 @@ class SkipConnectionBlock(nn.Module):
 
 
 class CustomCNN(nn.Module):
-    def __init__(self, num_classes=10):
+    def __init__(self, num_classes=28): ##!!! changed from 10
         super().__init__()
 
         # Step 1: Create the stem: ConvBNReLU(3, 32, kernel_size=3, stride=1, padding=1).
@@ -132,7 +131,8 @@ class CustomCNN(nn.Module):
 
         # YOUR CODE HERE
         self.conv = ConvBNReLU(3,32, kernel_size=3, stride=1, padding=1)
-
+        
+        ##!!! could mess around with kernel size, stride, padding to see if it improves accuracy
         self.block1 = nn.Sequential(
             SkipConnectionBlock(32,32,1),
             SkipConnectionBlock(32,32,1),
@@ -254,6 +254,7 @@ def evaluate(model, loader, criterion, device):
     return total_loss / total_examples, total_correct / total_examples
 
 
+##!!! Could mess around with parameters
 def fit_model(
     model,
     train_loader,
