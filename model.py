@@ -266,20 +266,6 @@ def fit_model(
     device=DEVICE,
     verbose=True,
 ):
-    # Step 1: Move model to device.
-    # Step 2: Create nn.CrossEntropyLoss().
-    # Step 3: Create torch.optim.SGD with momentum=0.9, nesterov=True,
-    #         the supplied learning rate, and the supplied weight decay.
-    # Step 4: Create CosineAnnealingLR with T_max=epochs.
-    # Step 5: Create a history dictionary for train/validation loss and accuracy and lr.
-    # Step 6: For each epoch:
-    #         a. call train_one_epoch,
-    #         b. call evaluate on the validation loader,
-    #         c. save a copy of the best model state according to validation accuracy,
-    #         d. record all metrics and the current learning rate,
-    #         e. call scheduler.step().
-    # Step 7: Restore the best validation model weights before returning.
-    # Step 8: Return history.
 
     # YOUR CODE HERE
     model = model.to(device)
@@ -378,13 +364,7 @@ def optimizer_search(
 
     for config in candidate_optimizers:
         optimizer = config["optimizer"]
-        # Step 1: Create tuning DataLoaders with batch_size=128.
-        #         Shuffle the tuning training loader only.
-        # Step 2: Create a fresh CustomCNN and initialize its weights.
-        # Step 3: Train for 2 epochs using config["lr"] and config["weight_decay"].
-        # Step 4: Store lr, weight_decay, final val_loss, and final val_acc.
 
-        # YOUR CODE HERE
         tune_train_loader = DataLoader(
             _tune_train_dataset, batch_size=128, shuffle=True, num_workers=0
         )
