@@ -1,5 +1,7 @@
 import copy
 import random
+import os
+import json
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,6 +10,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset, TensorDataset
 from torchvision import datasets, transforms
+
+import tensorflow as tf
 
 SEED = 42
 random.seed(SEED)
@@ -23,6 +27,57 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
 else:
     DEVICE = torch.device("cpu")
 
+# --------------------------------------------------
+# MEL-SPECTROGRAM PROCESSING
+# --------------------------------------------------
+mel_params = json.load(open("data/mel_params.json", "r"))
+
+processed_dir = 'data/processed'
+metadata_dir = 'data/processed/metadata'
+def load_specs(df):
+    specs = []
+    labels = []
+    for _, row in df.iterrows():
+        spec = np.load(os.path.join(processed_dir, row['Mel_Path']))
+        # Normalize
+        spec = (spec - mel_params.MEAN_DB) / (mel_params.STD_DB + 1e-9)
+        # Pad/truncate to fixed length
+        if spec.shape[1] < mel_params.MAX_MLEN:
+            pad_width = mel_params.MAX_MLEN - spec.shape[1]
+            spec = np.pad(spec, pad_width=pad_width, mode="constant")
+        else:
+            spec = spec[:, :mel_params.MAX_MLEN]
+
+        # Expand dimensions for channel
+        spec = np.expand_dims(spec, -1)
+        specs.append(spec)
+        labels.append(row['Label'])
+
+    df['features'] = specs
+    df['labels'] = labels
+    return df
+
+def df_to_tf(df, batch=32):
+    X = tf.stack([tf.convert_to_tensor(x, dtype=tf.float32) for x in df['features']])
+    Y = tf.convert_to_tensor(df['labels'], dtype=tf.int32)
+
+    ds = tf.data.Dataset.from_tensor_slices((X, Y))
+    return ds.batch(batch).cache().prefetch(tf.data.AUTOTUNE)
+
+def split_dataset(manifest_file):
+    df = pd.read_csv(manifest_file)
+
+    X = df.drop('labels')
+    y = df['Labels']
+
+    X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.2, random_state=SEED)
+    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=SEED)
+
+    return X_train, X_val, X_test, y_train, y_val, y_test
+
+# --------------------------------------------------
+# MODEL
+# --------------------------------------------------
 class ConvBNReLU(nn.Module):
     def __init__(
         self,
