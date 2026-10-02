@@ -323,20 +323,6 @@ def fit_model(
     device=DEVICE,
     verbose=True,
 ):
-    # Step 1: Move model to device.
-    # Step 2: Create nn.CrossEntropyLoss().
-    # Step 3: Create torch.optim.SGD with momentum=0.9, nesterov=True,
-    #         the supplied learning rate, and the supplied weight decay.
-    # Step 4: Create CosineAnnealingLR with T_max=epochs.
-    # Step 5: Create a history dictionary for train/validation loss and accuracy and lr.
-    # Step 6: For each epoch:
-    #         a. call train_one_epoch,
-    #         b. call evaluate on the validation loader,
-    #         c. save a copy of the best model state according to validation accuracy,
-    #         d. record all metrics and the current learning rate,
-    #         e. call scheduler.step().
-    # Step 7: Restore the best validation model weights before returning.
-    # Step 8: Return history.
 
     # YOUR CODE HERE
     model = model.to(device)
@@ -435,13 +421,7 @@ def optimizer_search(
 
     for config in candidate_optimizers:
         optimizer = config["optimizer"]
-        # Step 1: Create tuning DataLoaders with batch_size=128.
-        #         Shuffle the tuning training loader only.
-        # Step 2: Create a fresh CustomCNN and initialize its weights.
-        # Step 3: Train for 2 epochs using config["lr"] and config["weight_decay"].
-        # Step 4: Store lr, weight_decay, final val_loss, and final val_acc.
 
-        # YOUR CODE HERE
         tune_train_loader = DataLoader(
             _tune_train_dataset, batch_size=128, shuffle=True, num_workers=0
         )
@@ -470,3 +450,56 @@ def optimizer_search(
     best_config = max(search_results, key=lambda r: r["val_acc"])
     print(best_config)
 
+
+def final_training(train_loader, val_loader, best_config):
+    FINAL_EPOCHS = 50
+
+    final_model = CustomCNN(num_classes=10)
+    final_model.apply(initialize_weights)
+
+    final_history = fit_model(
+        final_model,
+        train_loader,
+        val_loader,
+        lr=float(best_config["lr"]),
+        weight_decay=float(best_config["weight_decay"]),
+        epochs=FINAL_EPOCHS,
+        device=DEVICE,
+        verbose=True,
+    )
+
+    return final_history
+
+def plot_history(history):
+    epochs = np.arange(1, len(history["train_loss"]) + 1)
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(epochs, history["train_loss"], marker="o", label="Train")
+    plt.plot(epochs, history["val_loss"], marker="o", label="Validation")
+    plt.xlabel("Epoch")
+    plt.ylabel("Cross-Entropy Loss")
+    plt.title("Training and Validation Loss")
+    plt.legend()
+    plt.grid(alpha=0.2)
+    plt.show()
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(epochs, history["train_acc"], marker="o", label="Train")
+    plt.plot(epochs, history["val_acc"], marker="o", label="Validation")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
+    plt.title("Training and Validation Accuracy")
+    plt.legend()
+    plt.grid(alpha=0.2)
+    plt.show()
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(epochs, history["lr"], marker="o")
+    plt.xlabel("Epoch")
+    plt.ylabel("Learning Rate")
+    plt.title("Learning-Rate Schedule")
+    plt.grid(alpha=0.2)
+    plt.show()
+
+
+#plot_history(final_history)
