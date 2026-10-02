@@ -448,3 +448,56 @@ def optimizer_search(
     best_config = max(search_results, key=lambda r: r["val_acc"])
     print(best_config)
 
+
+def final_training(train_loader, val_loader, best_config):
+    FINAL_EPOCHS = 50
+
+    final_model = CustomCNN(num_classes=10)
+    final_model.apply(initialize_weights)
+
+    final_history = fit_model(
+        final_model,
+        train_loader,
+        val_loader,
+        lr=float(best_config["lr"]),
+        weight_decay=float(best_config["weight_decay"]),
+        epochs=FINAL_EPOCHS,
+        device=DEVICE,
+        verbose=True,
+    )
+
+    return final_history
+
+def plot_history(history):
+    epochs = np.arange(1, len(history["train_loss"]) + 1)
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(epochs, history["train_loss"], marker="o", label="Train")
+    plt.plot(epochs, history["val_loss"], marker="o", label="Validation")
+    plt.xlabel("Epoch")
+    plt.ylabel("Cross-Entropy Loss")
+    plt.title("Training and Validation Loss")
+    plt.legend()
+    plt.grid(alpha=0.2)
+    plt.show()
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(epochs, history["train_acc"], marker="o", label="Train")
+    plt.plot(epochs, history["val_acc"], marker="o", label="Validation")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
+    plt.title("Training and Validation Accuracy")
+    plt.legend()
+    plt.grid(alpha=0.2)
+    plt.show()
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(epochs, history["lr"], marker="o")
+    plt.xlabel("Epoch")
+    plt.ylabel("Learning Rate")
+    plt.title("Learning-Rate Schedule")
+    plt.grid(alpha=0.2)
+    plt.show()
+
+
+#plot_history(final_history)
