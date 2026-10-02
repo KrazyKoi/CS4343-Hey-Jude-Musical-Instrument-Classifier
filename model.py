@@ -498,6 +498,11 @@ def plot_history(history):
     plt.title("Learning-Rate Schedule")
     plt.grid(alpha=0.2)
     plt.show()
-
+    
+def final_test_set_evaluation(final_model, test_loader):
+    criterion = nn.CrossEntropyLoss()
+    test_loss, test_acc = evaluate(final_model, test_loader, criterion, DEVICE)
+    print(f"Test loss: {test_loss:.4f}")
+    print(f"Test accuracy: {100 * test_acc:.2f}%")
 
 #plot_history(final_history)
