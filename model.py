@@ -427,7 +427,7 @@ def optimizer_search(
             _tune_val_dataset, batch_size=128, shuffle=False, num_workers=0
         )
 
-        model = CustomCNN(num_classes=10)
+        model = CustomCNN(num_classes=28)
         model.apply(initialize_weights)
 
         history = fit_model(
@@ -452,7 +452,7 @@ def optimizer_search(
 def final_training(train_loader, val_loader, best_config):
     FINAL_EPOCHS = 50
 
-    final_model = CustomCNN(num_classes=10)
+    final_model = CustomCNN(num_classes=28)
     final_model.apply(initialize_weights)
 
     final_history = fit_model(
