@@ -368,15 +368,16 @@ def optimizer_search(
 
 
     candidate_optimizers = [
-        sgdOptimizer,
-        adamOptimizer,
-        rmspropOptimizer,
-        adamwOptimizer
+        {"optimizer": sgdOptimizer, "name": "SGD"},
+        {"optimizer": adamOptimizer, "name": "Adam"},
+        {"optimizer": rmspropOptimizer, "name": "RMSProp"},
+        {"optimizer": adamwOptimizer, "name": "AdamW"}
     ]
 
     search_results = []
 
-    for optimizer in candidate_optimizers:
+    for config in candidate_optimizers:
+        optimizer = config["optimizer"]
         # Step 1: Create tuning DataLoaders with batch_size=128.
         #         Shuffle the tuning training loader only.
         # Step 2: Create a fresh CustomCNN and initialize its weights.
@@ -401,8 +402,7 @@ def optimizer_search(
         )
 
         result = {
-            "lr": lr,
-            "weight_decay": weight_decay,
+            "optimizer": config["name"],
             "val_loss": history["val_loss"][-1],
             "val_acc": history["val_acc"][-1],
         }
