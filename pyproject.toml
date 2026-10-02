@@ -1,0 +1,14 @@
+[project]
+name = "hey-jude-musical-instrument-classifier"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "librosa>=1.0.0",
+    "matplotlib>=3.11.2",
+    "notebook>=7.6.3",
+    "numpy>=2.5.3",
+    "torch>=2.14.0",
+    "torchaudio>=2.11.0",
+    "torchcodec>=0.16.0",
+]
