@@ -257,6 +257,7 @@ def evaluate(model, loader, criterion, device):
 ##!!! Could mess around with parameters
 def fit_model(
     model,
+    optimizer, #This allows for different optimizer to be used
     train_loader,
     val_loader,
     lr=0.1,
@@ -283,9 +284,7 @@ def fit_model(
     # YOUR CODE HERE
     model = model.to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(
-       model.parameters(), momentum=0.9, nesterov=True, lr=lr, weight_decay=weight_decay
-    )
+
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer, step_size=max(1, epochs // 2), gamma=0.3
     )
@@ -328,4 +327,89 @@ def fit_model(
     model.load_state_dict(best_state)
     return history
 
+
+
+def optimizer_search(
+        model,
+        train_loader,
+        val_loader,
+        lr=0.1,
+        weight_decay=5e-4,
+        device=DEVICE,
+        #verbose=True,
+):
+    # Create smaller loaders for hyperparameter tuning.
+    TUNE_TRAIN_SIZE = min(10000, len(train_loader.dataset))
+    TUNE_VAL_SIZE = min(2000, len(val_loader.dataset))
+
+    _tune_train_dataset = Subset(train_loader.dataset, range(TUNE_TRAIN_SIZE))
+    _tune_val_dataset = Subset(val_loader.dataset, range(TUNE_VAL_SIZE))
+
+    # Optimizers
+    # SGD with momentum
+    sgdOptimizer = torch.optim.SGD(
+        model.parameters(), momentum=0.9, nesterov=True, lr=lr, weight_decay=weight_decay
+    )
+
+    # Adam
+    adamOptimizer = torch.optim.Adam(
+        model.parameters(), lr=lr, weight_decay=weight_decay
+    )
+
+    # RMSProp
+    rmspropOptimizer = torch.optim.RMSprop(
+        model.parameters(), lr=lr, weight_decay=weight_decay
+    )
+
+    # AdamW
+    adamwOptimizer = torch.optim.AdamW(
+        model.parameters(), lr=lr, weight_decay=weight_decay
+    )
+
+
+    candidate_optimizers = [
+        sgdOptimizer,
+        adamOptimizer,
+        rmspropOptimizer,
+        adamwOptimizer
+    ]
+
+    search_results = []
+
+    for optimizer in candidate_optimizers:
+        # Step 1: Create tuning DataLoaders with batch_size=128.
+        #         Shuffle the tuning training loader only.
+        # Step 2: Create a fresh CustomCNN and initialize its weights.
+        # Step 3: Train for 2 epochs using config["lr"] and config["weight_decay"].
+        # Step 4: Store lr, weight_decay, final val_loss, and final val_acc.
+
+        # YOUR CODE HERE
+        tune_train_loader = DataLoader(
+            _tune_train_dataset, batch_size=128, shuffle=True, num_workers=0
+        )
+        tune_val_loader = DataLoader(
+            _tune_val_dataset, batch_size=128, shuffle=False, num_workers=0
+        )
+
+        model = CustomCNN(num_classes=10)
+        model.apply(initialize_weights)
+
+        history = fit_model(
+            model, optimizer, tune_train_loader, tune_val_loader,
+            lr=lr, weight_decay=weight_decay,
+            epochs=2
+        )
+
+        result = {
+            "lr": lr,
+            "weight_decay": weight_decay,
+            "val_loss": history["val_loss"][-1],
+            "val_acc": history["val_acc"][-1],
+        }
+        search_results.append(result)
+
+    # Step 5: Select the result with the highest validation accuracy.
+    # YOUR CODE HERE
+    best_config = max(search_results, key=lambda r: r["val_acc"])
+    print(best_config)
 
