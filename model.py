@@ -3,17 +3,18 @@ import random
 import os
 import json
 
+from pathlib import Path
+
+from sklearn import metrics
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix
 from torch.utils.data import DataLoader, Subset, TensorDataset
-from torchvision import datasets, transforms
-
-import tensorflow as tf
 
 SEED = 42
 random.seed(SEED)
@@ -32,26 +33,24 @@ else:
 # --------------------------------------------------
 # MEL-SPECTROGRAM PROCESSING
 # --------------------------------------------------
-mel_params = json.load(open("data/mel_params.json", "r"))
+mel_params = json.load(open("data/processed/mel_params.json", "r"))
 
-processed_dir = 'data/processed'
-metadata_dir = 'data/processed/metadata'
 def load_specs(df):
     specs = []
     labels = []
     for _, row in df.iterrows():
-        spec = np.load(os.path.join(processed_dir, row['Mel_Path']))
+        spec = np.load(row['Mel_Path'])
         # Normalize
-        spec = (spec - mel_params.MEAN_DB) / (mel_params.STD_DB + 1e-9)
+        spec = (spec - mel_params["MEAN_DB"]) / (mel_params["STD_DB"] + 1e-9)
         # Pad/truncate to fixed length
-        if spec.shape[1] < mel_params.MAX_MLEN:
-            pad_width = mel_params.MAX_MLEN - spec.shape[1]
-            spec = np.pad(spec, pad_width=pad_width, mode="constant")
+        if spec.shape[1] < mel_params["MAX_MLEN"]:
+            pad_width = mel_params["MAX_MLEN"] - spec.shape[1]
+            spec = np.pad(spec, pad_width=((0, 0), (0, pad_width)), mode="constant")
         else:
-            spec = spec[:, :mel_params.MAX_MLEN]
+            spec = spec[:, :mel_params["MAX_MLEN"]]
 
         # Expand dimensions for channel
-        spec = np.expand_dims(spec, -1)
+        spec = np.expand_dims(spec, 0)
         specs.append(spec)
         labels.append(row['Label'])
 
@@ -60,22 +59,20 @@ def load_specs(df):
     return df
 
 def df_to_tf(df, batch=32):
-    X = tf.stack([tf.convert_to_tensor(x, dtype=tf.float32) for x in df['features']])
-    Y = tf.convert_to_tensor(df['labels'], dtype=tf.int32)
+    df = df.sample(frac=1, random_state=SEED).reset_index(drop=True)
 
-    ds = tf.data.Dataset.from_tensor_slices((X, Y))
-    return ds.batch(batch).cache().prefetch(tf.data.AUTOTUNE)
+    mapped_series = df['labels'].map(mel_params["LABEL_MAP"])
 
-def split_dataset(manifest_file):
-    df = pd.read_csv(manifest_file)
+    if mapped_series.isna().any():
+        missing = df['labels'][mapped_series.isna()].unique()
+        raise ValueError(f"Found unmapped labels after shuffling: {missing}")
 
-    X = df.drop('labels')
-    y = df['Labels']
+    X = torch.stack([torch.tensor(x, dtype=torch.float32) for x in df['features']])
+    Y = torch.tensor(mapped_series.to_numpy(), dtype=torch.long)
 
-    X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.2, random_state=SEED)
-    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=SEED)
-
-    return X_train, X_val, X_test, y_train, y_val, y_test
+    ds = TensorDataset(X, Y)
+    dl = DataLoader(ds, batch_size=batch, shuffle=True, num_workers=0)
+    return dl
 
 # --------------------------------------------------
 # MODEL
@@ -187,7 +184,7 @@ class CustomCNN(nn.Module):
         # Step 6: Create the final Linear layer from 128 features to num_classes logits.
 
         # YOUR CODE HERE
-        self.conv = ConvBNReLU(3,32, kernel_size=3, stride=1, padding=1)
+        self.conv = ConvBNReLU(1,32, kernel_size=3, stride=1, padding=1)
         
         ##!!! could mess around with kernel size, stride, padding to see if it improves accuracy
         self.block1 = nn.Sequential(
@@ -296,6 +293,9 @@ def evaluate(model, loader, criterion, device):
     total_correct = 0
     total_examples = 0
 
+    all_preds = []
+    all_labels = []
+
     for images, labels in loader:
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
@@ -303,12 +303,22 @@ def evaluate(model, loader, criterion, device):
         logits = model(images)
         loss = criterion(logits, labels)
 
+        preds = logits.argmax(dim=1)
+
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+
         batch_size = labels.size(0)
         total_loss += loss.item() * batch_size
         total_correct += (logits.argmax(dim=1) == labels).sum().item()
         total_examples += batch_size
 
-    return total_loss / total_examples, total_correct / total_examples
+    cm = confusion_matrix(all_labels, all_preds, labels=list(range(28)))
+
+    avg_loss = total_loss / total_examples
+    avg_acc = total_correct / total_examples
+
+    return avg_loss, avg_acc, cm
 
 
 ##!!! Could mess around with parameters
@@ -344,7 +354,7 @@ def fit_model(
         train_loss, train_acc = train_one_epoch(
             model, train_loader, criterion, optimizer, device
         )
-        val_loss, val_acc = evaluate(model, val_loader, criterion, device)
+        val_loss, val_acc, _ = evaluate(model, val_loader, criterion, device)
 
         current_lr = optimizer.param_groups[0]["lr"]
         history["train_loss"].append(float(train_loss))
@@ -388,58 +398,64 @@ def optimizer_search(
     _tune_train_dataset = Subset(train_loader.dataset, range(TUNE_TRAIN_SIZE))
     _tune_val_dataset = Subset(val_loader.dataset, range(TUNE_VAL_SIZE))
 
-    # Optimizers
-    # SGD with momentum
-    sgdOptimizer = torch.optim.SGD(
-        model.parameters(), momentum=0.9, nesterov=True, lr=lr, weight_decay=weight_decay
+    tune_train_loader = DataLoader(
+        _tune_train_dataset, batch_size=128, shuffle=True, num_workers=0
     )
-
-    # Adam
-    adamOptimizer = torch.optim.Adam(
-        model.parameters(), lr=lr, weight_decay=weight_decay
+    tune_val_loader = DataLoader(
+        _tune_val_dataset, batch_size=128, shuffle=False, num_workers=0
     )
-
-    # RMSProp
-    rmspropOptimizer = torch.optim.RMSprop(
-        model.parameters(), lr=lr, weight_decay=weight_decay
-    )
-
-    # AdamW
-    adamwOptimizer = torch.optim.AdamW(
-        model.parameters(), lr=lr, weight_decay=weight_decay
-    )
-
 
     candidate_optimizers = [
-        {"optimizer": sgdOptimizer, "name": "SGD"},
-        {"optimizer": adamOptimizer, "name": "Adam"},
-        {"optimizer": rmspropOptimizer, "name": "RMSProp"},
-        {"optimizer": adamwOptimizer, "name": "AdamW"}
+        {"name": "SGD"},
+        {"name": "Adam"},
+        {"name": "RMSProp"},
+        {"name": "AdamW"}
     ]
 
     search_results = []
 
     for config in candidate_optimizers:
-        optimizer = config["optimizer"]
-
-        tune_train_loader = DataLoader(
-            _tune_train_dataset, batch_size=128, shuffle=True, num_workers=0
-        )
-        tune_val_loader = DataLoader(
-            _tune_val_dataset, batch_size=128, shuffle=False, num_workers=0
-        )
-
-        model = CustomCNN(num_classes=10)
+        model = CustomCNN(num_classes=num_classes)
         model.apply(initialize_weights)
 
+        name = config["name"]
+        if name == "SGD":
+            optimizer = torch.optim.SGD(
+                model.parameters(),
+                lr=lr,
+                weight_decay=weight_decay
+            )
+        elif name == "Adam":
+            optimizer = torch.optim.Adam(
+                model.parameters(),
+                lr=lr,
+                weight_decay=weight_decay
+            )
+        elif name == "RMSProp":
+            optimizer = torch.optim.RMSprop(
+                model.parameters(),
+                lr=lr,
+                weight_decay=weight_decay
+            )
+        elif name == "AdamW":
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=lr,
+                weight_decay=weight_decay
+            )
+
         history = fit_model(
-            model, optimizer, tune_train_loader, tune_val_loader,
-            lr=lr, weight_decay=weight_decay,
+            model,
+            optimizer,
+            tune_train_loader,
+            tune_val_loader,
+            lr=lr,
+            weight_decay=weight_decay,
             epochs=2
         )
 
         result = {
-            "optimizer": config["name"],
+            "optimizer_name": config["name"],
             "val_loss": history["val_loss"][-1],
             "val_acc": history["val_acc"][-1],
         }
@@ -450,8 +466,10 @@ def optimizer_search(
     best_config = max(search_results, key=lambda r: r["val_acc"])
     print(best_config)
 
+    return best_config
 
-def final_training(train_loader, val_loader, best_config):
+
+def final_training(optimizer, train_loader, val_loader, best_config):
     FINAL_EPOCHS = 50
 
     final_model = CustomCNN(num_classes=10)
@@ -459,6 +477,7 @@ def final_training(train_loader, val_loader, best_config):
 
     final_history = fit_model(
         final_model,
+        optimizer,
         train_loader,
         val_loader,
         lr=float(best_config["lr"]),
@@ -507,4 +526,63 @@ def final_test_set_evaluation(final_model, test_loader):
     print(f"Test loss: {test_loss:.4f}")
     print(f"Test accuracy: {100 * test_acc:.2f}%")
 
-#plot_history(final_history)
+# --------------------------------------------------
+# TRAINING
+# --------------------------------------------------
+# Load the CSV files
+print("Loading the CSV files")
+test_df = pd.read_csv("data/processed/test_manifest.csv")
+train_df = pd.read_csv("data/processed/train_manifest.csv")
+val_df = pd.read_csv("data/processed/val_manifest.csv")
+
+# Create DataFrame
+print("Creating the Data Frames")
+test_df = load_specs(test_df)
+train_df = load_specs(train_df)
+val_df = load_specs(val_df)
+
+# Data Loaders
+print("Creating the Data Loaders")
+train_loader = df_to_tf(train_df)
+test_loader = df_to_tf(test_df)
+val_loader = df_to_tf(val_df)
+
+# Initialize Model
+print("Initializing the Model")
+num_classes = len(mel_params["LABEL_MAP"])
+model = CustomCNN(num_classes=num_classes)
+model.apply(initialize_weights)
+
+# Select an Optimizer
+print("Comparing the Optimizers")
+optimizer = optimizer_search(model, train_loader, val_loader)
+
+# Final Model
+print("Running the Final Model")
+optimizer = torch.optim.Adam(
+    model.parameters(), lr=0.1, weight_decay=0.0005
+)
+model_history = fit_model(
+    model,
+    optimizer,
+    train_loader,
+    val_loader,
+    device=DEVICE,
+    verbose=True,
+)
+
+plot_history(model_history)
+
+# Evaluation
+print("Evaluating the Final Model")
+criterion = nn.CrossEntropyLoss()
+test_loss, test_acc, cm = evaluate(model, test_loader, criterion, DEVICE)
+
+print(f"Test loss: {test_loss:.4f}")
+print(f"Test accuracy: {100 * test_acc:.2f}%")
+
+cm_display = metrics.ConfusionMatrixDisplay(
+    confusion_matrix=cm, display_labels=mel_params["LABEL_MAP"])
+
+cm_display.plot()
+plt.show()
