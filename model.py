@@ -378,9 +378,8 @@ def fit_model(
         scheduler.step()
 
     model.load_state_dict(best_state)
+    torch.save(model.state_dict(), "final_model.pt")
     return history
-
-
 
 def optimizer_search(
         model,
@@ -415,6 +414,7 @@ def optimizer_search(
     search_results = []
 
     for config in candidate_optimizers:
+        print("Evaluating optimizer:", config["name"])
         model = CustomCNN(num_classes=num_classes)
         model.apply(initialize_weights)
 
@@ -469,10 +469,10 @@ def optimizer_search(
     return best_config
 
 
-def final_training(optimizer, train_loader, val_loader, best_config):
+def final_training(optimizer, train_loader, val_loader):
     FINAL_EPOCHS = 50
 
-    final_model = CustomCNN(num_classes=10)
+    final_model = CustomCNN(num_classes=num_classes)
     final_model.apply(initialize_weights)
 
     final_history = fit_model(
@@ -480,8 +480,8 @@ def final_training(optimizer, train_loader, val_loader, best_config):
         optimizer,
         train_loader,
         val_loader,
-        lr=float(best_config["lr"]),
-        weight_decay=float(best_config["weight_decay"]),
+        lr=0.1,
+        weight_decay=5e-4,
         epochs=FINAL_EPOCHS,
         device=DEVICE,
         verbose=True,
@@ -522,13 +522,15 @@ def plot_history(history):
     
 def final_test_set_evaluation(final_model, test_loader):
     criterion = nn.CrossEntropyLoss()
-    test_loss, test_acc = evaluate(final_model, test_loader, criterion, DEVICE)
+    test_loss, test_acc, _ = evaluate(final_model, test_loader, criterion, DEVICE)
     print(f"Test loss: {test_loss:.4f}")
     print(f"Test accuracy: {100 * test_acc:.2f}%")
 
 # --------------------------------------------------
 # TRAINING
 # --------------------------------------------------
+print(f"Executing on {DEVICE}")
+
 # Load the CSV files
 print("Loading the CSV files")
 test_df = pd.read_csv("data/processed/test_manifest.csv")
@@ -554,21 +556,49 @@ model = CustomCNN(num_classes=num_classes)
 model.apply(initialize_weights)
 
 # Select an Optimizer
-print("Comparing the Optimizers")
-optimizer = optimizer_search(model, train_loader, val_loader)
+# print("Comparing the Optimizers")
+# optimizer_results = optimizer_search(model, train_loader, val_loader)
+#
+# if optimizer_results["name"] == "SGD":
+#     optimizer = torch.optim.SGD(
+#         model.parameters(),
+#         lr=optimizer_results["lr"],
+#         weight_decay=optimizer_results["weight_decay"]
+#     )
+# elif optimizer_results["name"] == "Adam":
+#     optimizer = torch.optim.Adam(
+#         model.parameters(),
+#         lr=optimizer_results["lr"],
+#         weight_decay=optimizer_results["weight_decay"]
+#     )
+# elif optimizer_results["name"] == "RMSProp":
+#     optimizer = torch.optim.RMSprop(
+#         model.parameters(),
+#         lr=optimizer_results["lr"],
+#         weight_decay=optimizer_results["weight_decay"]
+#     )
+# elif optimizer_results["name"] == "AdamW":
+#     optimizer = torch.optim.AdamW(
+#         model.parameters(),
+#         lr=optimizer_results["lr"],
+#         weight_decay=optimizer_results["weight_decay"]
+#     )
+
+optimizer = torch.optim.AdamW(
+    model.parameters(),
+    lr=0.1,
+    weight_decay=5e-4
+)
 
 # Final Model
 print("Running the Final Model")
-model_history = fit_model(
-    model,
+final_history = final_training(
     optimizer,
     train_loader,
     val_loader,
-    device=DEVICE,
-    verbose=True,
 )
 
-plot_history(model_history)
+plot_history(final_history)
 
 # Evaluation
 print("Evaluating the Final Model")
