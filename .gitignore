@@ -1,5 +1,7 @@
 # Datasets
 data/
+images/
+models/
 
 # IDE
 .idea

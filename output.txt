@@ -1,0 +1,42 @@
+(Hey-Jude-Musical-Instrument-Classifier) PS C:\school\cs4343\Hey-Jude-Musical-Instrument-Classifier> python model.py
+11:35:20         Executing on cuda
+11:35:20         Loading the CSV files
+11:35:20         Creating the Data Frames
+11:36:19         Creating the Data Loaders
+11:36:26         Initializing the Model
+11:36:26         Comparing the Optimizers
+Evaluating optimizer: SGD
+11:47:33         Epoch 01/2 | train acc 42.30% | val acc 43.70% | lr 0.10000
+11:58:34         Epoch 02/2 | train acc 64.08% | val acc 62.70% | lr 0.03000
+Evaluating optimizer: Adam
+12:10:17         Epoch 01/2 | train acc 27.72% | val acc 8.35% | lr 0.10000
+12:21:13         Epoch 02/2 | train acc 52.20% | val acc 36.10% | lr 0.03000
+Evaluating optimizer: RMSProp
+12:32:42         Epoch 01/2 | train acc 17.31% | val acc 9.35% | lr 0.10000
+12:45:26         Epoch 02/2 | train acc 37.25% | val acc 17.40% | lr 0.03000
+Evaluating optimizer: AdamW
+12:58:58         Epoch 01/2 | train acc 35.60% | val acc 52.00% | lr 0.10000
+13:11:42         Epoch 02/2 | train acc 61.88% | val acc 64.15% | lr 0.03000
+{'optimizer_name': 'AdamW', 'val_loss': 1.2582788810729981, 'val_acc': 0.6415}
+
+(Hey-Jude-Musical-Instrument-Classifier) PS C:\school\cs4343\Hey-Jude-Musical-Instrument-Classifier> python model.py
+16:29:07         Executing on cuda
+16:29:07         Loading the CSV files
+16:29:08         Creating the Data Frames
+16:29:42         Creating the Data Loaders
+16:29:46         Initializing the Model
+16:29:46         Comparing the Optimizers
+16:29:46         Running the Final Model
+17:17:19         Epoch 01/10 | train acc 60.57% | val acc 43.21% | lr 0.10000
+18:01:17         Epoch 02/10 | train acc 79.11% | val acc 67.82% | lr 0.10000
+18:44:34         Epoch 03/10 | train acc 86.51% | val acc 83.64% | lr 0.10000
+19:28:48         Epoch 04/10 | train acc 90.40% | val acc 67.93% | lr 0.10000
+20:14:23         Epoch 05/10 | train acc 92.45% | val acc 88.93% | lr 0.10000
+21:00:07         Epoch 06/10 | train acc 95.90% | val acc 95.53% | lr 0.03000
+21:46:57         Epoch 07/10 | train acc 96.71% | val acc 95.92% | lr 0.03000
+22:32:04         Epoch 08/10 | train acc 97.11% | val acc 95.53% | lr 0.03000
+23:17:14         Epoch 09/10 | train acc 97.38% | val acc 94.64% | lr 0.03000
+00:02:25         Epoch 10/10 | train acc 97.63% | val acc 95.06% | lr 0.03000
+02:46:57         Evaluating the Final Model
+Test loss: 0.1058
+Test accuracy: 96.70%

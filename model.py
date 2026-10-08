@@ -2,7 +2,9 @@ import copy
 import random
 import os
 import json
+import shutil
 
+from datetime import datetime
 from pathlib import Path
 
 from sklearn import metrics
@@ -58,7 +60,7 @@ def load_specs(df):
     df['labels'] = labels
     return df
 
-def df_to_tf(df, batch=32):
+def df_to_tf(df, batch=128, shuffle=True):
     df = df.sample(frac=1, random_state=SEED).reset_index(drop=True)
 
     mapped_series = df['labels'].map(mel_params["LABEL_MAP"])
@@ -71,7 +73,16 @@ def df_to_tf(df, batch=32):
     Y = torch.tensor(mapped_series.to_numpy(), dtype=torch.long)
 
     ds = TensorDataset(X, Y)
-    dl = DataLoader(ds, batch_size=batch, shuffle=True, num_workers=0)
+
+    dl = DataLoader(
+        ds,
+        batch_size=batch,
+        shuffle=shuffle,
+        num_workers=0,
+        pin_memory=True,
+        persistent_workers=False,
+    )
+
     return dl
 
 # --------------------------------------------------
@@ -369,16 +380,24 @@ def fit_model(
 
         if verbose:
             print(
+                f"{datetime.now().strftime("%H:%M:%S")} \t "
                 f"Epoch {epoch:02d}/{epochs} | "
                 f"train acc {100*train_acc:.2f}% | "
                 f"val acc {100*val_acc:.2f}% | "
                 f"lr {current_lr:.5f}"
             )
 
+        torch.save(
+            model.state_dict(),
+            f"models/epoch_{epoch:02d}.pt"
+        )
         scheduler.step()
 
     model.load_state_dict(best_state)
-    torch.save(model.state_dict(), "final_model.pt")
+    torch.save(
+        model.state_dict(),
+        "final_model.pt"
+    )
     return history
 
 def optimizer_search(
@@ -398,10 +417,20 @@ def optimizer_search(
     _tune_val_dataset = Subset(val_loader.dataset, range(TUNE_VAL_SIZE))
 
     tune_train_loader = DataLoader(
-        _tune_train_dataset, batch_size=128, shuffle=True, num_workers=0
+        _tune_train_dataset,
+        batch_size=128,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=True,
+        persistent_workers=False,
     )
     tune_val_loader = DataLoader(
-        _tune_val_dataset, batch_size=128, shuffle=False, num_workers=0
+        _tune_val_dataset,
+        batch_size=128,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=True,
+        persistent_workers=False,
     )
 
     candidate_optimizers = [
@@ -456,6 +485,8 @@ def optimizer_search(
 
         result = {
             "optimizer_name": config["name"],
+            "lr": lr,
+            "weight_decay": weight_decay,
             "val_loss": history["val_loss"][-1],
             "val_acc": history["val_acc"][-1],
         }
@@ -468,26 +499,57 @@ def optimizer_search(
 
     return best_config
 
-
-def final_training(optimizer, train_loader, val_loader):
-    FINAL_EPOCHS = 50
+def final_training(
+        optimizer_name,
+        train_loader,
+        val_loader,
+        lr=0.1,
+        weight_decay=5e-4
+):
+    FINAL_EPOCHS = 10
 
     final_model = CustomCNN(num_classes=num_classes)
     final_model.apply(initialize_weights)
+    final_model.to(DEVICE)
+
+    if optimizer_name == "SGD":
+        optimizer = torch.optim.SGD(
+            final_model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay
+        )
+    elif optimizer_name == "Adam":
+        optimizer = torch.optim.Adam(
+            final_model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay
+        )
+    elif optimizer_name == "RMSProp":
+        optimizer = torch.optim.RMSprop(
+            final_model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay
+        )
+    elif optimizer_name == "AdamW":
+        optimizer = torch.optim.AdamW(
+            final_model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay
+        )
 
     final_history = fit_model(
         final_model,
         optimizer,
         train_loader,
         val_loader,
-        lr=0.1,
-        weight_decay=5e-4,
+        lr=lr,
+        weight_decay=weight_decay,
         epochs=FINAL_EPOCHS,
         device=DEVICE,
         verbose=True,
     )
 
-    return final_history
+    return final_model, final_history
 
 def plot_history(history):
     epochs = np.arange(1, len(history["train_loss"]) + 1)
@@ -500,7 +562,7 @@ def plot_history(history):
     plt.title("Training and Validation Loss")
     plt.legend()
     plt.grid(alpha=0.2)
-    plt.show()
+    # plt.show()
 
     plt.figure(figsize=(8, 4))
     plt.plot(epochs, history["train_acc"], marker="o", label="Train")
@@ -510,7 +572,7 @@ def plot_history(history):
     plt.title("Training and Validation Accuracy")
     plt.legend()
     plt.grid(alpha=0.2)
-    plt.show()
+    # plt.show()
 
     plt.figure(figsize=(8, 4))
     plt.plot(epochs, history["lr"], marker="o")
@@ -518,98 +580,98 @@ def plot_history(history):
     plt.ylabel("Learning Rate")
     plt.title("Learning-Rate Schedule")
     plt.grid(alpha=0.2)
-    plt.show()
-    
-def final_test_set_evaluation(final_model, test_loader):
-    criterion = nn.CrossEntropyLoss()
-    test_loss, test_acc, _ = evaluate(final_model, test_loader, criterion, DEVICE)
-    print(f"Test loss: {test_loss:.4f}")
-    print(f"Test accuracy: {100 * test_acc:.2f}%")
+    # plt.show()
 
 # --------------------------------------------------
 # TRAINING
 # --------------------------------------------------
-print(f"Executing on {DEVICE}")
+if __name__ == "__main__":
+    print(f"{datetime.now().strftime("%H:%M:%S")} \t Executing on {DEVICE}")
 
-# Load the CSV files
-print("Loading the CSV files")
-test_df = pd.read_csv("data/processed/test_manifest.csv")
-train_df = pd.read_csv("data/processed/train_manifest.csv")
-val_df = pd.read_csv("data/processed/val_manifest.csv")
+    # Load the CSV files
+    print(f"{datetime.now().strftime("%H:%M:%S")} \t Loading the CSV files")
+    test_df = pd.read_csv("data/processed/test_manifest.csv")
+    train_df = pd.read_csv("data/processed/train_manifest.csv")
+    val_df = pd.read_csv("data/processed/val_manifest.csv")
 
-# Create DataFrame
-print("Creating the Data Frames")
-test_df = load_specs(test_df)
-train_df = load_specs(train_df)
-val_df = load_specs(val_df)
+    # Create DataFrame
+    print(f"{datetime.now().strftime("%H:%M:%S")} \t Creating the Data Frames")
+    test_df = load_specs(test_df)
+    train_df = load_specs(train_df)
+    val_df = load_specs(val_df)
 
-# Data Loaders
-print("Creating the Data Loaders")
-train_loader = df_to_tf(train_df)
-test_loader = df_to_tf(test_df)
-val_loader = df_to_tf(val_df)
+    # Data Loaders
+    print(f"{datetime.now().strftime("%H:%M:%S")} \t Creating the Data Loaders")
+    train_loader = df_to_tf(train_df, shuffle=True)
+    test_loader = df_to_tf(test_df, shuffle=False)
+    val_loader = df_to_tf(val_df, shuffle=False)
 
-# Initialize Model
-print("Initializing the Model")
-num_classes = len(mel_params["LABEL_MAP"])
-model = CustomCNN(num_classes=num_classes)
-model.apply(initialize_weights)
+    # Initialize Model
+    print(f"{datetime.now().strftime("%H:%M:%S")} \t Initializing the Model")
+    num_classes = len(mel_params["LABEL_MAP"])
+    model = CustomCNN(num_classes=num_classes)
+    model.apply(initialize_weights)
 
-# Select an Optimizer
-# print("Comparing the Optimizers")
-# optimizer_results = optimizer_search(model, train_loader, val_loader)
-#
-# if optimizer_results["name"] == "SGD":
-#     optimizer = torch.optim.SGD(
-#         model.parameters(),
-#         lr=optimizer_results["lr"],
-#         weight_decay=optimizer_results["weight_decay"]
-#     )
-# elif optimizer_results["name"] == "Adam":
-#     optimizer = torch.optim.Adam(
-#         model.parameters(),
-#         lr=optimizer_results["lr"],
-#         weight_decay=optimizer_results["weight_decay"]
-#     )
-# elif optimizer_results["name"] == "RMSProp":
-#     optimizer = torch.optim.RMSprop(
-#         model.parameters(),
-#         lr=optimizer_results["lr"],
-#         weight_decay=optimizer_results["weight_decay"]
-#     )
-# elif optimizer_results["name"] == "AdamW":
-#     optimizer = torch.optim.AdamW(
-#         model.parameters(),
-#         lr=optimizer_results["lr"],
-#         weight_decay=optimizer_results["weight_decay"]
-#     )
+    # Select an Optimizer
+    print(f"{datetime.now().strftime("%H:%M:%S")} \t Comparing the Optimizers")
+    # UNCOMMENT FOR FULL RUN
+    # optimizer_results = optimizer_search(model, train_loader, val_loader)
 
-optimizer = torch.optim.AdamW(
-    model.parameters(),
-    lr=0.1,
-    weight_decay=5e-4
-)
+    # UNCOMMENT FOR HARDCODED RUN
+    optimizer_results = {
+        "optimizer_name": "AdamW",
+        "lr": 0.1,
+        "weight_decay": 5e-4,
+        "val_loss": 1.2582788810729981,
+        "val_acc": 0.6415,
+    }
 
-# Final Model
-print("Running the Final Model")
-final_history = final_training(
-    optimizer,
-    train_loader,
-    val_loader,
-)
+    # Final Model
+    print(f"{datetime.now().strftime("%H:%M:%S")} \t Training the Final Model")
+    # UNCOMMENT FOR FULL RUN
+    # final_model, final_history = final_training(
+    #     optimizer_results["optimizer_name"],
+    #     train_loader,
+    #     val_loader,
+    # )
+    #
+    # plot_history(final_history)
 
-plot_history(final_history)
+    # UNCOMMENT FOR HARDCODED RUN
+    final_model = CustomCNN(num_classes=num_classes)
+    final_model.apply(initialize_weights)
+    final_model.to(DEVICE)
 
-# Evaluation
-print("Evaluating the Final Model")
-criterion = nn.CrossEntropyLoss()
-test_loss, test_acc, cm = evaluate(model, test_loader, criterion, DEVICE)
+    state_dict = torch.load('final_model.pt', weights_only=True)
 
-print(f"Test loss: {test_loss:.4f}")
-print(f"Test accuracy: {100 * test_acc:.2f}%")
+    final_model.load_state_dict(state_dict)
 
-cm_display = metrics.ConfusionMatrixDisplay(
-    confusion_matrix=cm, display_labels=mel_params["LABEL_MAP"])
+    # Evaluation
+    print(f"{datetime.now().strftime("%H:%M:%S")} \t Evaluating the Final Model")
 
-cm_display.plot()
-plt.show()
+    criterion = nn.CrossEntropyLoss()
+    test_loss, test_acc, cm = evaluate(
+        final_model,
+        test_loader,
+        criterion,
+        DEVICE
+    )
+
+    print(f"Test loss: {test_loss:.4f}")
+    print(f"Test accuracy: {100 * test_acc:.2f}%")
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    plt.rc('font', size=9)
+    plt.rc('axes', titlesize=12)
+
+    cm_display = metrics.ConfusionMatrixDisplay(
+        confusion_matrix=cm, display_labels=mel_params["LABEL_MAP"])
+
+    cm_display.plot(ax=ax, cmap=plt.cm.Blues)
+
+    ax.set_xticklabels(mel_params["LABEL_MAP"], rotation=60, ha="right")
+
+    # plt.savefig("confusion_matrix.png", dpi=300)
+    plt.tight_layout()
+    plt.show()
